@@ -1,0 +1,297 @@
+---
+title: 'BMA & MCMC: R Notebook'
+output:
+  html_document:
+    mydf_print: paged
+  html_notebook:
+  pdf_document: default
+---
+Code to generate data
+```{r true}
+# true parameters
+sigma = 2.5
+betatrue = c(1,2,0,0,0,-1,0,1.5, 0,0,0,1,0,.5,0,0,0,0,-1,1,3.5)
+#          int|    X1                            | X2     |X3 
+
+truemodel = betatrue != 0
+```
+
+We are now going to generate an 1  X matrix with correlated columns for the training data.  
+```{r datasets, cache=TRUE} 
+set.seed(42)
+#sample size
+n = 50
+
+# generate some standard normals
+  Z = matrix(rnorm(n*10, 0, 1), ncol=10, nrow=n)
+  
+#  Create X1 by taking linear cominations of Z to induce correlation among X1 components
+  
+  X1 = cbind(Z, 
+             (Z[,1:5] %*% c(.3, .5, .7, .9, 1.1) %*% t(rep(1,5)) +
+             matrix(rnorm(n*5, 0, 1), ncol=5, nrow=n))
+             )
+# generate X2 as a standard normal  
+  X2 <- matrix(rnorm(n*4,0,1), ncol=4, nrow=n)
+  
+# Generate X3 as a linear combination of X2 and noise  
+  X3 <- X2[,4]+rnorm(n,0,sd=0.1)
+  
+# combine them  
+  X <- cbind(X1,X2,X3)
+  
+# subtract off the column means
+  X = sweep(X, 2, apply(X,2, mean), FUN="-") 
+#  also see scale()
+# Generate mu     
+# X does not have a column of ones for the intercept so need to add the intercept  
+# for true mu  
+  mu = betatrue[1] + X %*% betatrue[-1] 
+  
+# now generate Y  
+  Y = mu + rnorm(n,0,sigma)  
+  
+# make a dataframe and save it
+  mydf = data.frame(Y, X, mu)
+  rm(Y,X,mu)
+```
+
+Let's explore fitting this with BAS.  To install the latest version in Linux use  (Windows or MAC download from CRAN)  (modify the code below)
+
+```{r, echo=FALSE}
+library(devtools)
+install_github("merliseclyde/BAS")
+#install.packages("BAS", dep=TRUE)
+```
+
+Load the library
+```{r}
+library(BAS)
+packageDescription("BAS")$Version
+```
+
+Let's try running BAS on the simulated data:
+
+```{r enumerate, cache=TRUE}
+system.time(
+  bas.lm(Y ~ . - mu, data=mydf,
+                prior="g-prior", a=nrow(mydf), modelprior=uniform(),
+                n.models=2^20,
+                method="deterministic")
+)
+```
+
+OK - the last number is the time in secs to enumerate the 2^20 models   that is $2^{20}$ models -  over a million. 
+
+```{r fitmodel, cache=TRUE}
+mydf.bas = bas.lm(Y ~ . - mu, data=mydf,
+                prior="g-prior", a=nrow(mydf), modelprior=uniform(),
+                n.models = 2^20,
+                method="deterministic")
+image(mydf.bas)
+```
+
+
+Do we need to enumerate all to have decent answers?
+
+We will use MCMC sampling.  We will sample models using a Markov chain, such that the time spent any any state (a model) is proportional to the probability of the model.  If we run long enough the frequency of visits converges to the posterior probability of the model.  Of course we cannot visit all models necessarily, but we can  use this to try to find the highest probability model or estimate other quantities, such as the posterior inclusion probabilities.
+
+```{r}
+system.time(
+  bas.lm(Y ~ . -mu, data=mydf,
+                prior="g-prior", a=nrow(mydf), modelprior=uniform(),
+                method="MCMC", MCMC.iterations = 200000, thin = 20)
+)
+```
+So 200000 iterations took about a half a second.  Much better!
+
+Is this close enough?
+
+```{r MCMC}
+mydf.bas =  bas.lm(Y ~ . - mu, data=mydf,
+                prior="g-prior", a=nrow(mydf), modelprior=uniform(),
+                method="MCMC", MCMC.iterations = 200000, thin = 20)
+plot(mydf.bas)
+diagnostics(mydf.bas, type="pip")
+```
+
+In this plot the MCMC estimates are based on the proportion  of times that $\gamma_j$ equals one out of the total number of simulations.  The renormalized estimates are based on the expression
+$$\hat{p}_j = \frac{\sum_{M_{\gamma \in S}} \gamma_j p(Y \mid M_\gamma)p(M_\gamma)}
+{\sum_{M_\gamma  \in S}  p(Y \mid M_\gamma)p(M_\gamma)}$$
+If we were to enumerate all models the renormalized estimates would be the actual posterior inclusion probabilities.   However with sampling they may be biased, but the bias disappears as the number of MCMC iterations increases.  For a large enough sample these should be in close agreement.  If possible run longer!
+
+```{r bas}
+mydf.bas =  bas.lm(Y ~ . - mu, data=mydf,
+                prior="g-prior", a=nrow(mydf), modelprior=uniform(),
+                method="MCMC", MCMC.iterations = 2000000, thin = 20)
+diagnostics(mydf.bas, type="pip")
+plot(mydf.bas)
+```
+
+Let's look at how well we estimated $\beta$ under the g-prior and the highest posterior probability model.  We use `n.models` to select estimates based on the averaging over the top `n.models`.  If `n.models = 1` then this is equivalent to using the highest probability model.
+
+```{r beta-HPM}
+library(ggplot2)
+betas.bas =coef(mydf.bas, n.models=1)
+mydf.beta = data.frame(betatrue, betahat=betas.bas$postmean)
+ggplot(mydf.beta, aes(betahat, betatrue)) + geom_point() + geom_abline(intercept=0,slope=1) 
+```
+
+
+Look at  Bayesian Confidence intervals:
+
+```{r ci}
+plot(confint(betas.bas))
+points(1:length(betatrue), betatrue, col=2)
+```
+
+Capture some but miss others.   Note that when we select a model, we are expressing certainty that certain coefficients are zero with probabilty one.   In that case the credible intervals are also a point at zero, so our intervals also miss the true coefficients. 
+
+Define RMSE:
+
+```{r rmse}
+rmse = function(theta, thetahat) {sqrt(mean((theta - thetahat)^2))}
+```
+
+How well do we do on average?
+```{r}
+rmse(mydf.beta$betatrue, mydf.beta$betahat)
+```
+
+
+
+Let's contrast that with BMA.  Omit `n.models` in the `coef` function to average over all distributions.
+
+```{r beta-BMA}
+library(ggplot2)
+betas.bas =coef(mydf.bas)  # omit n.models for BMA
+mydf.beta = data.frame(betatrue, betahat=betas.bas$postmean)
+ggplot(mydf.beta, aes(betahat, betatrue)) + geom_point() + geom_abline(intercept=0,slope=1) 
+```
+
+
+Look at  Bayesian Credible intervals under BMA:
+
+```{r ci-BMA}
+plot(confint(betas.bas))
+points(1:length(betatrue), betatrue, col=2)
+```
+
+BMA is doing better than selection!   All of the coefficients are included in the credible intervals.   Note that the two variables that are highly correlated, V19 and X3 have much wider intervals than many of the others.
+OK so how well do we do on average?
+
+
+```{r}
+rmse(mydf.beta$betatrue, mydf.beta$betahat)
+```
+
+
+
+What about $\mu$?
+
+To get the estimate of $\mu$ we can use the fitted function for the HPM
+
+```{r mu}
+muhat = fitted(mydf.bas, estimator="HPM")
+plot(mydf$mu, muhat, xlab=expression(hat(mu)), ylab=expression(mu))
+abline(0,1)
+```
+```{r}
+rmse(muhat, mydf$mu)
+```
+
+What about predictions?
+
+`BAS` has a predict method that (see `help(predict.bas)`).
+
+Here is how to extract the predictions under the Median Probability Model:
+
+```{r pred}
+pred.mydf = predict(mydf.bas, mydf, estimator="MPM")
+```
+
+```{r}
+names(pred.mydf)
+```
+
+The `fit` component in the object is the prediction.
+```{r}
+plot(muhat, pred.mydf$fit)
+```
+
+Note that since we predicted at the same X values as used to fit the model our "best" predictions are the same as the posterior mean for $\mu$.
+
+Try to predict at the new data and compute the RMSE.
+
+### Other priors
+Let's try the Zellner-Siow Cauchy prior.
+
+```{r}
+mydf.ZS = bas.lm(Y ~ . - mu, data=mydf,
+               prior="JZS", a=nrow(mydf), modelprior=uniform(),
+               method="MCMC", MCMC.iterations = 900000, thin = 20, 
+               initprobs="marg-eplogp")
+```
+
+```{r}
+diagnostics(mydf.ZS)
+```
+
+```{r}
+plot(mydf.ZS)
+```
+
+Let's estimate the coefficients using BMA
+```{r}
+betas.ZS = coef(mydf.ZS)  # do not specify n.models for BMA
+plot(confint(betas.ZS))
+points(1:length(betatrue), betatrue, col=2)
+```
+
+```{r}
+rmse(betatrue, betas.ZS$postmean)
+```
+Is that better?
+
+```{r}
+image(mydf.ZS)
+```
+
+
+What about estimating $\mu$  using BMA?
+
+```{r}
+muhat.bma = fitted(mydf.ZS, estimator="BMA")
+plot(muhat.bma, mydf$mu)
+abline(0,1)
+```
+
+
+```{r}
+rmse(muhat.bma, mydf$mu)
+
+```
+
+
+What about estimating $\mu$  using Best Probability Model?
+
+
+```{r BPM}
+muhat.bpm = predict(mydf.ZS, estimator="BPM")
+plot(muhat.bpm$fit, mydf$mu)
+abline(0,1)
+```
+
+```{r}
+rmse(muhat.bpm$fit, mydf$mu)
+```
+
+What variables are in the BPM?
+
+```{r}
+muhat.bpm$bestmodel
+variable.names(muhat.bpm)
+betatrue[muhat.bpm$bestmodel+1]
+```
+
+Does this include all of the predictors with non-zero coefficients?   If you have to select, this gives the model closests to BMA.
