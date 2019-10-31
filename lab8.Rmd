@@ -1,0 +1,266 @@
+---
+title: 'lab 8: Team [team 8]'
+author: '[Eric Su-es351, ]'
+date: "November 5, 2018"
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+---
+
+
+```{r setup, echo=FALSE}
+suppressMessages(library(ISLR))
+suppressMessages(library(arm))
+suppressMessages(library(ggplot2))
+suppressMessages(library(dplyr))
+suppressMessages(library(GGally))
+suppressMessages(library(glmnet))
+library(knitr)
+# post on piazza for additional packages if there are wercker build errors due to missing packages
+```
+
+For Lab we will explore ridge and lasso regression using the college application data.  
+_Example code based on ISLR Lab 6.6_
+
+Reading: ISLR Chapter 6.
+
+To try to simplify models, remove redundant varialbes and provide better RMSE over OLS, variable selection is often used. Recall AIC and BIC select models and coefficients by solving the optimization problem
+$$
+\| Y - X_M\beta_M\|^2 + \lambda p_M  
+$$
+
+The term $\lambda \, p_M$ can be thought of as an $l_0$ penalty, where $\| \beta\|+0^2$ counts the number of non-zero parameters
+
+$$
+\| Y - X \beta \|^2 + \lambda \| \beta\|_0
+$$
+
+This is an NP-hard problem (i.e. there is not a polynomial-time algorithm).     Bayesian Variable selection also can be impacted by this computational complexity.
+
+Rather than solving the true selection problem instead consider solving 
+
+$$
+\| Y - X \beta \|^2 + \lambda \| \beta\|_2^2
+$$
+
+This is knows as ridge regression.  While the coefficients are never zero (except when $\lambda = \infty$) this constrains the coefficients from getting too large through the penalty, $\| \beta \|^2_2 = \sum_j \beta_j^2$.  Unstable coefficients that are large in absolute value is a consequence when there is high multicollinearity and the penality limits the growth of coefficients that increase in magnitude.
+
+By changing the penalty to the $l_1$ norm, 
+$$
+\| Y - X \beta \|^2 + \lambda \| \beta\|_1
+$$
+where $\| \beta \|_1 = \sum |\beta_j|$ we arrive at lasso or least absolute selection and shrinkage operator.  The penalty in Lasso also shrinks coeeficients by preventing them from growing too much, but the mode of the penalized likelihood often has solutions that set some of the $\beta_j$'s exactly to zero.
+
+
+
+## Preliminaries
+
+Load the college application data from Lab1 and create the variable `Elite` by binning the `Top10perc` variable. We are going to divide universities into two groups based on whether or not the proportion of students coming from the top 10% of their high school classes exceeds 50 %.  We will also save the College names as a new variable and remove `Accept` and `Enroll` as temporally they occur after applying, and do not make sense as predictors in future data.
+
+```{r data}
+data(College)
+College = College %>% 
+  mutate(Elite = factor(Top10perc > 50)) %>%
+  mutate(Elite = 
+           recode(Elite, 'TRUE' = "Yes", 'FALSE'="No")) %>%
+  select(c(-Accept, -Enroll))
+```
+
+As a team agree on the transformation of the response to use for the lab and add any additional predictors.  
+
+Set the random seed to your team number.
+```{r}
+set.seed(0)
+```
+
+Create a training and test set by randomly splitting the data.  
+
+```{r setseed}
+n = nrow(College)
+n.train = floor(.80*n)
+train = sample(1:n, size=n.train, replace=FALSE)
+test = -train
+```
+
+Define RMSE
+
+```{r}
+rmse = function(ypred, ytest) {
+  sqrt(mean((ypred-ytest)^2))
+}
+```
+
+
+1. Fit the full model using OLS for the training data.  Obtain the predictions of `Apps` on the test data and the RMSE. (modify for your response, i.e if you add `log(Apps)` to the dataframe, be sure to subtract `Apps` from the forumla RHS!)
+
+
+```{r}
+college.ols = lm(Apps ~ ., data=College,
+                 subset=train)
+
+pred.ols = predict(college.ols, 
+                   newdata=College[test,])
+rmse(pred.ols, College[test,"Apps"])
+
+```
+
+## using `glmnet` to fir ridge and lass regression
+
+Create data for `glmnet` which does not use a formula argument.  The `model.matrix()` function from base `R` is particularly useful for creating x; not only does it produce a matrix corresponding to the  predictors but it also automatically transforms any qualitative variables into dummy variables. The latter property is important because `glmnet()` can only take numerical, quantitative inputs.  As an alternative, we can use `lm.ridge` from the `MASS` library.  Note `model.matrix` includes a column of ones for the intercept, so we will drop that with `[, -]` in first line.  Modify the code to calculate `y` based on your transformation and make sure you do not include `Apps` on the RHS of the formula!
+
+
+```{r}
+x = model.matrix(Apps ~ ., College)[,-1]
+y = College$Apps  
+```
+
+
+By default the `glmnet()` function performs ridge regression for an automatically selected range of $\lambda$ values.  We will create our own grid of values ranging from $\lambda = 10^{10}$ to $\lambda = 10^{-2}$, essentially covering the full range of scenarios from the null model containing only the intercept, to the least squares fit. As we will see, we can also compute model fits for a particular value of $\lambda$ that is not one of the original grid values. Note that by default, the `glmnet()` function standardizes the variables so that they are on the same scale. To turn off this default setting, use the argument `standardize=FALSE`.   
+
+2.  Modify the code below fit the model using Ridge regression for your response. 
+
+```{r}
+grid=10^seq(10,-2,length=100)
+college.ridge = glmnet(x[train,],y[train],
+                       standardize=TRUE,
+                       lambda=grid,
+                       alpha = 0)
+```
+```{r}
+ridge.pred=predict(college.ridge,
+                   newx=x[test,],
+                   s=4)  # s = lambda
+rmse(ridge.pred, y[test])
+```
+
+
+Note that if we had instead simply fit a model with just an intercept, we would have predicted each test observation using the mean of the training observations. In that case, we could compute the test set MSE like this:
+
+```{r}
+rmse(rep(mean(y[train]), length(y[test])),
+     y[test])
+```
+Looks like ridge regression is doing better in terms of RMSE than either the full model or null model with OLS!
+
+We get something similar by using a large $\lambda$
+
+```{r}
+ridge.pred=predict(college.ridge,
+                   newx=x[test,],
+                   s=10^10)  # s = lambda
+rmse(ridge.pred, y[test])
+```
+
+### Choice of $\lambda$
+
+If we use the test data guide our choice of $\lambda$ we risk over-fitting the test data.  Instead we will use the `cv.glmnet` function to automatically choose the tuning parameter.
+
+```{r}
+set.seed (1)
+cv.out=cv.glmnet(x[train ,],y[train],alpha=0)
+plot(cv.out)
+bestlam=cv.out$lambda.min
+bestlam
+```
+
+Find the RMSE with the selected $\lambda$
+
+```{r}
+ridge.pred=predict(college.ridge,
+                   newx=x[test,],
+                   s=bestlam)  # s = lambda
+rmse(ridge.pred, y[test])
+```
+
+Hmm this seems worse??? Look closer
+
+```{r}
+cv.out$lambda
+```
+
+best is on the boundary;  the automatic grid failed.  Let's retry
+
+```{r}
+set.seed (1)
+cv.out=cv.glmnet(x[train ,],y[train],
+                 alpha=0,
+                 lambda=grid)
+plot(cv.out)
+bestlam=cv.out$lambda.min
+bestlam
+```
+
+Find the RMSE with the selected $\lambda$ take-two!
+
+```{r}
+ridge.pred=predict(college.ridge,
+                   newx=x[test,],
+                   s=bestlam)  # s = lambda
+rmse(ridge.pred, y[test])
+```
+
+* How does this compare to the $\lambda$ that would minimize the test set RMSE? Make a graph of test RMSE as a function of $\lambda$ and label your result from above.
+
+* Explain why we should not use the test data to choose $\lambda$.
+
+
+## Lasso
+
+We can use `glmnet()` to find predictions using the `lasso` by setting `alpha = `` in the above code.
+
+```{r}
+grid=10^seq(10,-2,length=100)
+college.lasso = glmnet(x[train,],y[train],
+                       standardize=TRUE,
+                       lambda=grid,
+                       alpha = 1)
+plot(college.lasso)
+```
+
+We can see from the coefficient plot that depending on the choice of tuning parameter, some of the coefficients will be exactly equal to zero. We now perform cross-validation and compute the associated test error.
+
+```{r}
+set.seed (1)
+cv.out=cv.glmnet(x[train ,],y[train],
+                 alpha=1,
+                 lambda=grid)
+plot(cv.out)
+bestlam=cv.out$lambda.min
+bestlam
+```
+
+Find the RMSE
+```{r}
+lasso.pred=predict(college.lasso,
+                   newx=x[test,],
+                   s=bestlam)  # s = lambda
+rmse(lasso.pred, y[test])
+```
+
+
+```{r}
+lasso.coef = predict(college.lasso,type="coefficients",s=bestlam)[1:17,]
+lasso.coef
+```
+
+How many are exactly 0?
+
+```{r}
+
+```
+
+
+## What about Poisson regression? 
+
+* Use `glmnet` with the `family="poisson"` and compare to your precious results.
+
+* Explain why is it important to compute the RMSE using `Apps` rather than `log(Apps)` or some other transformation when considering different families log-Gaussian, Poisson, etc).
+
+## Summary
+
+A potential advantage of lasso over ridge regression is that it will set some coefficients exactly to zero performing selection as well as shrinkage.
+
+A disadvantage of each is that most packages do not have options for providing uncertainty estimates for coefficients and predictions and ignore the uncertainty regarding the estimation of $\lambda$.  This is an area of ongoing research.  
+
+There are Bayesian analogs to both ridge and lasso, that do propagate uncertainty in choice of $\lambda$ that we will explore.   The opens up other penalties that provide better selection and shrinkage properties.
