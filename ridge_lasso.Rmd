@@ -15,7 +15,6 @@ suppressMessages(library(dplyr))
 suppressMessages(library(GGally))
 suppressMessages(library(glmnet))
 library(knitr)
-# post on piazza for additional packages if there are wercker build errors due to missing packages
 ```
 
 For Lab we will explore ridge and lasso regression using the college application data.  
@@ -48,7 +47,7 @@ By changing the penalty to the $l_1$ norm,
 $$
 \| Y - X \beta \|^2 + \lambda \| \beta\|_1
 $$
-where $\| \beta \|_1 = \sum |\beta_j|$ we arrive at lasso or least absolute selection and shrinkage operator.  The penalty in Lasso also shrinks coeeficients by preventing them from growing too much, but the mode of the penalized likelihood often has solutions that set some of the $\beta_j$'s exactly to zero.
+where $\| \beta \|_1 = \sum |\beta_j|$ we arrive at lasso or least absolute selection and shrinkage operator.  The penalty in Lasso also shrinks coefficients by preventing them from growing too much, but the mode of the penalized likelihood often has solutions that set some of the $\beta_j$'s exactly to zero.
 
 
 
@@ -90,7 +89,7 @@ rmse = function(ypred, ytest) {
 ```
 
 
-1. Fit the full model using OLS for the training data.  Obtain the predictions of `Apps` on the test data and the RMSE. (modify for your response, i.e if you add `log(Apps)` to the dataframe, be sure to subtract `Apps` from the forumla RHS!)
+1. Fit the full model using OLS for the training data.  Obtain the predictions of `Apps` on the test data and the RMSE. (modify for your response, i.e if you add `log(Apps)` to the dataframe, be sure to subtract `Apps` from the formula RHS!)
 
 
 ```{r}
@@ -103,9 +102,9 @@ rmse(pred.ols, College[test,"Apps"])
 
 ```
 
-## using `glmnet` to fir ridge and lass regression
+## using `glmnet` to fit ridge and lasso regression
 
-Create data for `glmnet` which does not use a formula argument.  The `model.matrix()` function from base `R` is particularly useful for creating x; not only does it produce a matrix corresponding to the  predictors but it also automatically transforms any qualitative variables into dummy variables. The latter property is important because `glmnet()` can only take numerical, quantitative inputs.  As an alternative, we can use `lm.ridge` from the `MASS` library.  Note `model.matrix` includes a column of ones for the intercept, so we will drop that with `[, -]` in first line.  Modify the code to calculate `y` based on your transformation and make sure you do not include `Apps` on the RHS of the formula!
+Create data for `glmnet` which does not use a formula argument.  The `model.matrix()` function from base `R` is particularly useful for creating x; not only does it produce a matrix corresponding to the  predictors but it also automatically transforms any qualitative variables into dummy variables. The latter property is important because `glmnet()` can only take numerical, quantitative inputs.  As an alternative, we can use `lm.ridge` from the `MASS` library.  Note `model.matrix` includes a column of ones for the intercept, so we will drop that with `[, -1]` in first line.  Modify the code to calculate `y` based on your transformation and make sure you do not include `Apps` on the RHS of the formula!
 
 
 ```{r}
@@ -133,7 +132,7 @@ rmse(ridge.pred, y[test])
 ```
 
 
-Note that if we had instead simply fit a model with just an intercept, we would have predicted each test observation using the mean of the training observations. In that case, we could compute the test set MSE like this:
+Note that if we had instead simply fit a model with just an intercept, we would have predicted each test observation using the mean of the training observations. In that case, we could compute the test set RMSE like this:
 
 ```{r}
 rmse(rep(mean(y[train]), length(y[test])),
@@ -205,7 +204,7 @@ rmse(ridge.pred, y[test])
 
 ## Lasso
 
-We can use `glmnet()` to find predictions using the `lasso` by setting `alpha = `` in the above code.
+We can use `glmnet()` to find predictions using the `lasso` by setting `alpha = 1` in the above code.
 
 ```{r}
 grid=10^seq(10,-2,length=100)
