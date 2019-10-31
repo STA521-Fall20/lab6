@@ -1,5 +1,5 @@
 
-# Lab 7: Getting Started
+# Lab 6: Getting Started
 # 
 
 Go to the github course site. You should have a team repository named W8-Team-X-lab9  where X is your team number. Click on the repo's name and then Click on Clone or Download. Copy the URL for the repo for the next step.
