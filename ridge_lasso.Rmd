@@ -1,13 +1,11 @@
 ---
-title: 'lab 8: Team [team 8]'
-author: '[Eric Su-es351, ]'
-date: "November 5, 2018"
+title: 'Ridge & Lasso'
 output:
-  pdf_document: default
   html_document:
-    df_print: paged
+    mydf_print: paged
+  html_notebook:
+  pdf_document: default
 ---
-
 
 ```{r setup, echo=FALSE}
 suppressMessages(library(ISLR))
