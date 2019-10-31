@@ -2,7 +2,7 @@
 # Lab 6: Getting Started
 # 
 
-Go to the github course site. You should have a team repository named W8-Team-X-lab9  where X is your team number. Click on the repo's name and then Click on Clone or Download. Copy the URL for the repo for the next step.
+Go to the github course site. You should have a team repository named W8-Team-X-lab6  where X is your team number. Click on the repo's name and then Click on Clone or Download. Copy the URL for the repo for the next step.
 
 Open Rstudio on saxon at http://saxon.stat.duke.edu:8787 and login with your netid and password.
 
