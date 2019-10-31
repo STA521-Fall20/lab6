@@ -244,10 +244,6 @@ lasso.coef
 
 How many are exactly 0?
 
-```{r}
-
-```
-
 
 ## What about Poisson regression? 
 
